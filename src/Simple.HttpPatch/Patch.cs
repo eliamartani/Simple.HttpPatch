@@ -9,27 +9,20 @@ namespace Simple.HttpPatch
     public sealed class Patch<TModel> : DynamicObject where TModel : class
     {
         private readonly IDictionary<PropertyInfo, object> _changedProperties = new Dictionary<PropertyInfo, object>();
+        private readonly string[] _excludedProperties = new[] { "ID" };
 
         public override bool TrySetMember(SetMemberBinder binder, object value)
         {
             PropertyInfo propertyInfo = typeof(TModel).GetProperty(binder.Name, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-            if (propertyInfo != null)
+            bool isIgnoredProp = propertyInfo?.GetCustomAttribute<PatchIgnoreAttribute>() != null;
+            bool isIgnoredIfNull = propertyInfo?.GetCustomAttribute<PatchIgnoreNullAttribute>() != null;
+            bool containsValueOrIsNull = (isIgnoredIfNull && value != null) || !isIgnoredIfNull;
+
+            if (propertyInfo != null &&
+                !isIgnoredProp &&
+                containsValueOrIsNull)
             {
-                var isIgnoredPropery = propertyInfo.GetCustomAttribute<PatchIgnoreAttribute>() != null;
-                if (!isIgnoredPropery)
-                {
-                    var isIgnoredIfNull = propertyInfo.GetCustomAttribute<PatchIgnoreNullAttribute>() != null;
-                    if (isIgnoredIfNull)
-                    {
-                        if (value != null)
-                        {
-                            _changedProperties.Add(propertyInfo, value);
-                        }
-                    } else
-                    {
-                        _changedProperties.Add(propertyInfo, value);
-                    }
-                }
+                _changedProperties.Add(propertyInfo, value);
             }
 
             return base.TrySetMember(binder, value);
@@ -37,52 +30,47 @@ namespace Simple.HttpPatch
 
         public void Apply(TModel delta)
         {
-            if(delta == null)
+            if (delta == null)
             {
                 throw new ArgumentNullException(nameof(delta));
             }
 
             foreach (var property in _changedProperties)
             {
-                if (!IsExcludedProperty(property.Key.Name))
+                if (_excludedProperties.Contains(property.Key.Name.ToUpper()))
                 {
-                    object value = ChangeType(property.Value, property.Key.PropertyType);
-                    property.Key.SetValue(delta, value);
+                    continue;
                 }
+
+                object value = ChangeType(property.Value, property.Key.PropertyType);
+
+                property.Key.SetValue(delta, value);
             }
         }
 
-        private static object ChangeType(object value, Type type)
+        private object ChangeType(object value, Type type)
         {
-            try
+            if (type == typeof(Guid))
             {
-                if (type == typeof(Guid))
-                {
-                    return Guid.Parse((string)value);
-                }
-
-                if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
-                {
-                    if (value == null)
-                    {
-                        return null;
-                    }
-
-                    type = Nullable.GetUnderlyingType(type);
-                }
-
-                return Convert.ChangeType(value, type ?? throw new ArgumentNullException(nameof(type)));
+                return Guid.Parse((string)value);
             }
-            catch
+
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                if (value == null)
+                {
+                    return null;
+                }
+
+                type = Nullable.GetUnderlyingType(type);
+            }
+
+            if (type == null)
             {
                 return null;
             }
-        }
 
-        private static bool IsExcludedProperty(string propertyName)
-        {
-            IEnumerable<string> defaultExcludedProperies = new[] { "ID" };
-            return defaultExcludedProperies.Contains(propertyName.ToUpper());
+            return Convert.ChangeType(value, type);
         }
     }
 }
