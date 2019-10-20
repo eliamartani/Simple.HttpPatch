@@ -50,6 +50,11 @@ namespace Simple.HttpPatch
 
         private object ChangeType(object value, Type type)
         {
+            if (type == null)
+            {
+                return null;
+            }
+            
             if (type == typeof(Guid))
             {
                 return Guid.Parse((string)value);
@@ -63,11 +68,6 @@ namespace Simple.HttpPatch
                 }
 
                 type = Nullable.GetUnderlyingType(type);
-            }
-
-            if (type == null)
-            {
-                return null;
             }
 
             return Convert.ChangeType(value, type);
